@@ -8,7 +8,7 @@ export const CONFIG = {
   baubles: 64,
   lights: 210,
   sparks: 520,
-  snow: 360,
+  snow: 520,
   garlandTurns: 6.5,
   colors: {
     night: '#07140f',

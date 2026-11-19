@@ -45,6 +45,7 @@ export default function App() {
   const motion = useRef({ spin: 0, tilt: 0 });
   const [mode, setMode] = useState<TreeMode>('FORMED');
   const [gesture, setGesture] = useState(false);
+  const [snow, setSnow] = useState(true);
   const [preview, setPreview] = useState(false);
   const [status, setStatus] = useState('');
 
@@ -93,6 +94,7 @@ export default function App() {
           <Suspense fallback={null}>
             <Experience
               mode={mode}
+              snow={snow}
               reducedMotion={reducedMotion}
               controlsEnabled
               autoRotate={!gesture && mode === 'FORMED' && !reducedMotion}
@@ -116,6 +118,17 @@ export default function App() {
           >
             {mode === 'FORMED' ? '散开' : '聚成树'}
           </button>
+          <button
+            type="button"
+            className="btn"
+            aria-pressed={snow}
+            onClick={(event) => {
+              event.stopPropagation();
+              setSnow((value) => !value);
+            }}
+          >
+            {snow ? '关闭下雪' : '下雪'}
+          </button>
           <button type="button" className="btn" aria-pressed={gesture} onClick={() => setGesture((value) => !value)}>
             {gesture ? '关闭手势' : '开启手势'}
           </button>
@@ -126,7 +139,7 @@ export default function App() {
           )}
         </div>
         <p className={problem ? 'dock-note is-error' : gesture ? 'dock-note' : 'dock-note is-hint'} role="status">{note}</p>
-        <p className="sr-only" aria-live="polite">{mode === 'FORMED' ? '圣诞树已聚拢' : '灯火已散开'}</p>
+        <p className="sr-only" aria-live="polite">{mode === 'FORMED' ? '圣诞树已聚拢' : '灯火已散开'}{snow ? '，正在下雪' : '，下雪已关闭'}</p>
       </footer>
 
       {gesture && (

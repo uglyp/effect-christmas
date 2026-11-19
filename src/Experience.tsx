@@ -21,6 +21,7 @@ interface Motion {
 
 interface ExperienceProps {
   mode: TreeMode;
+  snow: boolean;
   reducedMotion: boolean;
   controlsEnabled: boolean;
   autoRotate: boolean;
@@ -639,49 +640,178 @@ function LightRise({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boo
   );
 }
 
-function Snowfall({ reducedMotion }: { reducedMotion: boolean }) {
+function useFlakeTexture() {
+  return useMemo(() => {
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext('2d');
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    if (!context) return texture;
+    const center = size / 2;
+    const glow = context.createRadialGradient(center, center, 6, center, center, 120);
+    glow.addColorStop(0, 'rgba(255,255,255,0.34)');
+    glow.addColorStop(0.5, 'rgba(226,238,246,0.08)');
+    glow.addColorStop(1, 'rgba(226,238,246,0)');
+    context.fillStyle = glow;
+    context.fillRect(0, 0, size, size);
+    context.translate(center, center);
+    context.strokeStyle = 'rgba(255,255,255,0.98)';
+    context.fillStyle = 'rgba(255,255,255,0.98)';
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    const arm = 108;
+    for (let spoke = 0; spoke < 6; spoke += 1) {
+      context.save();
+      context.rotate((Math.PI * 2 * spoke) / 6);
+      context.lineWidth = 9;
+      context.beginPath();
+      context.moveTo(0, 0);
+      context.lineTo(0, -arm);
+      context.stroke();
+      context.lineWidth = 6;
+      for (const place of [0.4, 0.62, 0.82]) {
+        const y = -arm * place;
+        const spread = arm * (0.3 - place * 0.12);
+        context.beginPath();
+        context.moveTo(0, y);
+        context.lineTo(spread, y - spread * 0.62);
+        context.moveTo(0, y);
+        context.lineTo(-spread, y - spread * 0.62);
+        context.stroke();
+      }
+      context.beginPath();
+      context.moveTo(0, -arm - 14);
+      context.lineTo(12, -arm + 6);
+      context.lineTo(0, -arm + 1);
+      context.lineTo(-12, -arm + 6);
+      context.closePath();
+      context.fill();
+      context.restore();
+    }
+    context.beginPath();
+    context.arc(0, 0, 8, 0, Math.PI * 2);
+    context.fill();
+    texture.needsUpdate = true;
+    return texture;
+  }, []);
+}
+
+function Snowfall({ enabled, reducedMotion }: { enabled: boolean; reducedMotion: boolean }) {
   const ref = useRef<Points>(null);
+  const materialRef = useRef<ShaderMaterial>(null);
   const speeds = useRef<Float32Array>(new Float32Array());
-  const positions = useMemo(() => {
+  const sway = useRef<Float32Array>(new Float32Array());
+  const flake = useFlakeTexture();
+  const viewport = useThree((state) => state.size);
+  const buffers = useMemo(() => {
     const count = CONFIG.snow;
-    const array = new Float32Array(count * 3);
+    const positions = new Float32Array(count * 3);
+    const sizes = new Float32Array(count);
+    const spins = new Float32Array(count);
     const speed = new Float32Array(count);
+    const drift = new Float32Array(count);
     for (let index = 0; index < count; index += 1) {
-      const theta = hashUnit(index, 1) * Math.PI * 2;
-      const radius = Math.sqrt(hashUnit(index, 2)) * 10.5;
-      array[index * 3] = Math.cos(theta) * radius;
-      array[index * 3 + 1] = -6 + hashUnit(index, 3) * 14;
-      array[index * 3 + 2] = Math.sin(theta) * radius;
-      speed[index] = 0.28 + hashUnit(index, 4) * 0.7;
+      const closer = hashUnit(index, 6) > 0.74;
+      positions[index * 3] = (hashUnit(index, 1) - 0.5) * 26;
+      positions[index * 3 + 1] = -8 + hashUnit(index, 3) * 20;
+      positions[index * 3 + 2] = closer ? 1 + hashUnit(index, 2) * 6 : -10 + hashUnit(index, 2) * 9;
+      sizes[index] = closer ? 1.75 + hashUnit(index, 7) * 0.5 : 1.15 + hashUnit(index, 7) * 0.4;
+      spins[index] = hashUnit(index, 8) * Math.PI * 2;
+      speed[index] = 0.32 + hashUnit(index, 4) * 0.55;
+      drift[index] = (hashUnit(index, 5) - 0.5) * 0.45;
     }
     speeds.current = speed;
-    return array;
+    sway.current = drift;
+    return { positions, sizes, spins };
   }, []);
 
-  useFrame((_, delta) => {
-    if (reducedMotion || !ref.current) return;
-    const attribute = ref.current.geometry.attributes.position;
+  useFrame((state, delta) => {
+    const material = materialRef.current;
+    const points = ref.current;
+    if (material) {
+      material.uniforms.uOpacity.value = enabled ? 1 : 0;
+      material.uniforms.uTime.value = reducedMotion ? 0 : state.clock.elapsedTime;
+      const narrow = viewport.width < 720;
+      material.uniforms.uScale.value = narrow ? 230 : 320;
+      material.uniforms.uMaxSize.value = narrow ? 22 : 28;
+    }
+    if (points) points.visible = enabled;
+    if (!enabled || reducedMotion || !points) return;
+    const attribute = points.geometry.attributes.position;
     const array = attribute.array as Float32Array;
     const speed = speeds.current;
+    const drift = sway.current;
+    const time = state.clock.elapsedTime;
     for (let index = 0; index < speed.length; index += 1) {
+      array[index * 3] += Math.sin(time * 0.45 + index * 0.17) * drift[index] * delta;
       array[index * 3 + 1] -= speed[index] * delta;
-      if (array[index * 3 + 1] < -6.4) array[index * 3 + 1] = 8.2;
+      if (array[index * 3 + 1] < -8.4) {
+        array[index * 3] = (hashUnit(index, 1) - 0.5) * 26;
+        array[index * 3 + 1] = 11.2;
+      }
     }
     attribute.needsUpdate = true;
   });
 
   return (
-    <points ref={ref} frustumCulled={false}>
+    <points ref={ref} frustumCulled={false} renderOrder={2}>
       <bufferGeometry>
-        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+        <bufferAttribute attach="attributes-position" args={[buffers.positions, 3]} />
+        <bufferAttribute attach="attributes-aSize" args={[buffers.sizes, 1]} />
+        <bufferAttribute attach="attributes-aSpin" args={[buffers.spins, 1]} />
       </bufferGeometry>
-      <pointsMaterial color={CONFIG.colors.snow} size={0.055} transparent opacity={0.62} depthWrite={false} sizeAttenuation />
+      <shaderMaterial
+        ref={materialRef}
+        transparent
+        depthWrite={false}
+        uniforms={{
+          uMap: { value: flake },
+          uOpacity: { value: 1 },
+          uTime: { value: 0 },
+          uScale: { value: 320 },
+          uMaxSize: { value: 28 },
+        }}
+        vertexShader={`
+          uniform float uTime;
+          uniform float uScale;
+          uniform float uMaxSize;
+          attribute float aSize;
+          attribute float aSpin;
+          varying float vSpin;
+          void main() {
+            vSpin = aSpin + uTime * 0.25;
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            gl_PointSize = clamp(aSize * uScale / max(1.0, -mvPosition.z), 10.0, uMaxSize);
+            gl_Position = projectionMatrix * mvPosition;
+          }
+        `}
+        fragmentShader={`
+          uniform sampler2D uMap;
+          uniform float uOpacity;
+          varying float vSpin;
+          void main() {
+            if (uOpacity < 0.01) discard;
+            vec2 centered = gl_PointCoord - 0.5;
+            float c = cos(vSpin);
+            float s = sin(vSpin);
+            vec2 uv = mat2(c, -s, s, c) * centered + 0.5;
+            vec4 flake = texture2D(uMap, uv);
+            float alpha = flake.a * uOpacity;
+            if (alpha < 0.05) discard;
+            gl_FragColor = vec4(flake.rgb * alpha, alpha);
+          }
+        `}
+      />
     </points>
   );
 }
 
 export default function Experience({
   mode,
+  snow,
   reducedMotion,
   controlsEnabled,
   autoRotate,
@@ -743,6 +873,7 @@ export default function Experience({
 
       <Stars radius={62} depth={24} count={1800} factor={3.4} saturation={0} fade speed={reducedMotion ? 0 : 0.35} />
       <Environment preset="apartment" environmentIntensity={0.38} />
+      <Snowfall enabled={snow} reducedMotion={reducedMotion} />
 
       <OrbitControls
         ref={controlsRef}
@@ -768,7 +899,6 @@ export default function Experience({
         <Baubles mode={mode} reducedMotion={reducedMotion} />
         <Gifts />
         <Star mode={mode} reducedMotion={reducedMotion} />
-        <Snowfall reducedMotion={reducedMotion} />
       </group>
 
       <EffectComposer multisampling={2}>
