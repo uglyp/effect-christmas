@@ -6,6 +6,18 @@ import Experience from './Experience';
 import GestureController from './GestureController';
 import type { TreeMode } from './treeConfig';
 
+function useNarrow() {
+  const query = '(max-width: 720px)';
+  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const onChange = () => setNarrow(media.matches);
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+  return narrow;
+}
+
 function useReducedMotion() {
   const [reduced, setReduced] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   useEffect(() => {
@@ -29,6 +41,7 @@ function LoadLine() {
 
 export default function App() {
   const reducedMotion = useReducedMotion();
+  const narrow = useNarrow();
   const motion = useRef({ spin: 0, tilt: 0 });
   const [mode, setMode] = useState<TreeMode>('FORMED');
   const [gesture, setGesture] = useState(false);
@@ -64,7 +77,7 @@ export default function App() {
       <LoadLine />
       <div className="viewport">
         <Canvas
-          dpr={[1, 1.6]}
+          dpr={narrow ? [1, 1.25] : [1, 1.6]}
           camera={{ position: [0, 0.35, 34], fov: 30, near: 0.1, far: 180 }}
           gl={{
             antialias: true,
@@ -112,7 +125,7 @@ export default function App() {
             </button>
           )}
         </div>
-        <p className={problem ? 'dock-note is-error' : 'dock-note'} role="status">{note}</p>
+        <p className={problem ? 'dock-note is-error' : gesture ? 'dock-note' : 'dock-note is-hint'} role="status">{note}</p>
         <p className="sr-only" aria-live="polite">{mode === 'FORMED' ? '圣诞树已聚拢' : '灯火已散开'}</p>
       </footer>
 

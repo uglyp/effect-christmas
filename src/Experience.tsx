@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, type MutableRefObject } from 'react';
-import { extend as extendFiber, useFrame } from '@react-three/fiber';
+import { extend as extendFiber, useFrame, useThree } from '@react-three/fiber';
 import { Environment, OrbitControls, Stars, shaderMaterial } from '@react-three/drei';
 import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing';
 import { MathUtils, ShaderMaterial, type Group, type Mesh, type Points } from 'three';
@@ -688,6 +688,36 @@ export default function Experience({
   motion,
 }: ExperienceProps) {
   const controlsRef = useRef<React.ComponentRef<typeof OrbitControls>>(null);
+  const fitted = useRef('');
+  const size = useThree((state) => state.size);
+  const camera = useThree((state) => state.camera);
+
+  useFrame(() => {
+    const key = `${size.width}x${size.height}`;
+    if (fitted.current === key) return;
+    const controls = controlsRef.current;
+    if (!controls || !(camera instanceof THREE.PerspectiveCamera)) return;
+    const aspect = size.width / Math.max(size.height, 1);
+    const narrow = aspect < 0.85;
+    const short = size.height < 520;
+    camera.fov = narrow ? 36 : short ? 34 : 30;
+    camera.updateProjectionMatrix();
+    const halfWidth = Math.tan(MathUtils.degToRad(camera.fov / 2)) * aspect;
+    const distance = narrow
+      ? MathUtils.clamp(6.8 / Math.max(halfWidth, 0.08), 38, 56)
+      : short ? 40 : 34;
+    controls.target.set(0, narrow ? -2.05 : -1.1, 0);
+    controls.minDistance = narrow ? 28 : 18;
+    controls.maxDistance = narrow ? 64 : 48;
+    const offset = new THREE.Vector3().setFromSpherical(new THREE.Spherical(
+      distance,
+      narrow ? 1.36 : 1.48,
+      controls.getAzimuthalAngle(),
+    ));
+    camera.position.copy(controls.target).add(offset);
+    controls.update();
+    fitted.current = key;
+  });
 
   useFrame((_, delta) => {
     const controls = controlsRef.current;
