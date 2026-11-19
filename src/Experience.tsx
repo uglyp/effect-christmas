@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, type MutableRefObject } from 'react';
+import { Suspense, useLayoutEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { extend as extendFiber, useFrame, useThree } from '@react-three/fiber';
 import { Environment, OrbitControls, Stars, shaderMaterial } from '@react-three/drei';
 import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing';
@@ -71,9 +71,14 @@ const foliageShader = {
       vec3 finalPos = vec3(cos(ang) * rad, y, sin(ang) * rad);
       vec4 mvPosition = modelViewMatrix * vec4(finalPos, 1.0);
       float travel = sin(localT * 3.14159);
-      float px = mix(130.0, 280.0, localT);
-      float cap = mix(2.8, 8.2, localT) + travel * 1.2;
-      gl_PointSize = clamp((px * (0.42 + aRandom * 0.5 + aShell * 0.28)) / max(1.0, -mvPosition.z), 1.6, cap);
+      float rank = fract(aRandom * 17.13);
+      float bright = pow(rank, 1.65);
+      float formedMul = 0.42 + aRandom * 0.5 + aShell * 0.28;
+      float chaosMul = mix(0.72, 1.55, bright);
+      float mul = mix(chaosMul, formedMul, localT);
+      float px = mix(mix(220.0, 480.0, bright), 280.0, localT);
+      float cap = mix(mix(4.1, 10.4, bright), 8.2, localT) + travel * 1.2;
+      gl_PointSize = clamp((px * mul) / max(1.0, -mvPosition.z), 1.8, cap);
       gl_Position = projectionMatrix * mvPosition;
     }
   `,
@@ -114,11 +119,16 @@ const foliageShader = {
       pine += vec3(0.7, 0.38, 0.08) * band * tipLight * crownFade * 0.42;
       float travel = sin(clamp(vMix, 0.0, 1.0) * 3.14159);
       pine += lamp * travel * jewel * 0.65;
-      float spark = step(0.58, vRandom);
-      vec3 dust = mix(vec3(0.04, 0.2, 0.09), lamp, spark);
-      dust *= 0.5 + 0.55 * twinkle;
-      vec3 color = mix(dust, pine, vMix);
-      float alpha = glow * mix(0.14 + spark * 0.62, 0.55 + 0.45 * vShell, vMix);
+      float rank = fract(vRandom * 17.13);
+      float lift = pow(rank, 0.82);
+      vec3 chaos = mix(lamp * 0.32 + vec3(0.04, 0.1, 0.04), lamp * 0.82, smoothstep(0.04, 0.36, rank));
+      chaos = mix(chaos, lamp * 1.45, smoothstep(0.38, 0.7, rank));
+      chaos = mix(chaos, mix(lamp, vec3(1.0, 0.97, 0.88), 0.62) * 2.05, smoothstep(0.82, 1.0, rank));
+      chaos *= mix(0.78, 0.36 + 0.82 * twinkle, smoothstep(0.16, 0.78, rank));
+      vec3 color = mix(chaos, pine, vMix);
+      float chaosAlpha = glow * mix(0.42, 1.0, lift);
+      float formedAlpha = glow * (0.55 + 0.45 * vShell);
+      float alpha = mix(chaosAlpha, formedAlpha, vMix);
       gl_FragColor = vec4(color * alpha, alpha);
     }
   `,
@@ -237,9 +247,14 @@ function Foliage({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boole
       randoms[index] = hashUnit(index, 8);
       shells[index] = shell;
       const theta = hashUnit(index, 11) * Math.PI * 2;
-      const rad = 1.2 + Math.pow(hashUnit(index, 12), 0.55) * 7.6;
+      const unit = hashUnit(index, 12);
+      const inner = hashUnit(index, 14) > 0.28;
+      const rad = inner
+        ? 0.3 + Math.pow(unit, 0.8) * 5.2
+        : 1.6 + Math.pow(unit, 0.48) * 6.5;
+      const ySpan = inner ? 9.4 : 12.8;
       positions[index * 3] = Math.cos(theta) * rad;
-      positions[index * 3 + 1] = MathUtils.clamp((hashUnit(index, 13) - 0.42) * 12.4, -2.5, 5.5);
+      positions[index * 3 + 1] = MathUtils.clamp((hashUnit(index, 13) - 0.44) * ySpan, -2.4, 5.4);
       positions[index * 3 + 2] = Math.sin(theta) * rad;
     }
     return { positions, targets, randoms, shells };
@@ -917,7 +932,9 @@ export default function Experience({
       <pointLight position={[-8, 2.5, 7]} intensity={48} color="#b7c7d4" decay={2} />
 
       <Stars radius={62} depth={24} count={1800} factor={3.4} saturation={0} fade speed={reducedMotion ? 0 : 0.35} />
-      <Environment preset="apartment" environmentIntensity={0.38} />
+      <Suspense fallback={null}>
+        <Environment preset="apartment" environmentIntensity={0.38} />
+      </Suspense>
       <Snowfall enabled={snow} reducedMotion={reducedMotion} />
 
       <OrbitControls
