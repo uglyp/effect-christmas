@@ -50,11 +50,19 @@ const foliageShader = {
       vHeight = aTargetPos.y;
       vRadius = length(position.xz);
       float t = cubicInOut(clamp(uProgress, 0.0, 1.0));
-      vMix = t;
-      float sway = sin(uTime * 1.15 + aTargetPos.y * 0.85 + aRandom * 6.2831) * (0.02 + aShell * 0.07) * t;
+      float yNorm = clamp((aTargetPos.y + 6.1) / 12.2, 0.0, 1.0);
+      float delay = yNorm * 0.46;
+      float localT = smoothstep(delay, min(delay + 0.5, 1.0), t);
+      vMix = localT;
+      float sway = sin(uTime * 1.15 + aTargetPos.y * 0.85 + aRandom * 6.2831) * (0.02 + aShell * 0.07) * localT;
       vec3 formed = aTargetPos;
       formed.x += sway;
-      formed.z += cos(uTime * 0.9 + aRandom * 7.0) * (0.02 + aShell * 0.06) * t;
+      formed.z += cos(uTime * 0.9 + aRandom * 7.0) * (0.02 + aShell * 0.06) * localT;
+      float unwind = (1.0 - localT) * (2.4 + aRandom * 2.2);
+      float cs = cos(unwind);
+      float sn = sin(unwind);
+      formed.xz = mat2(cs, sn, -sn, cs) * formed.xz;
+      formed.y += sin(localT * 3.14159) * (0.45 + aRandom * 1.05);
       float column = step(aRandom, 0.26);
       float swirl = atan(position.z, position.x);
       swirl += aRandom > 0.63 ? 3.14159 : 0.0;
@@ -63,10 +71,11 @@ const foliageShader = {
       float r = column > 0.5 ? mix(0.25, 1.8, aShell) : arm;
       vec3 chaos = vec3(cos(swirl) * r, position.y * 0.62, sin(swirl) * r);
       chaos.y += sin(uTime * (0.7 + aRandom) + swirl) * (column > 0.5 ? 1.15 : 0.32);
-      vec3 finalPos = mix(chaos, formed, t);
+      vec3 finalPos = mix(chaos, formed, localT);
       vec4 mvPosition = modelViewMatrix * vec4(finalPos, 1.0);
-      float px = mix(220.0, 340.0, t);
-      float cap = mix(6.5, 10.0, t);
+      float travel = sin(localT * 3.14159);
+      float px = mix(240.0, 280.0, localT);
+      float cap = mix(7.0, 8.2, localT) + travel * 2.4;
       gl_PointSize = clamp((px * (0.42 + aRandom * 0.5 + aShell * 0.28)) / max(1.0, -mvPosition.z), 1.6, cap);
       gl_Position = projectionMatrix * mvPosition;
     }
@@ -84,21 +93,32 @@ const foliageShader = {
       float glow = pow(1.0 - smoothstep(0.0, 0.5, dist), 1.55);
       float twinkle = pow(0.5 + 0.5 * sin(uTime * (1.1 + vRandom * 5.5) + vRandom * 40.0), 2.4);
       float tipLight = smoothstep(0.5, 1.0, vShell);
-      vec3 core = vec3(0.02, 0.16, 0.06);
-      vec3 mid = vec3(0.07, 0.5, 0.18);
-      vec3 tip = vec3(0.32, 1.12, 0.46);
-      vec3 gold = vec3(1.2, 0.78, 0.28);
+      vec3 core = vec3(0.015, 0.11, 0.045);
+      vec3 mid = vec3(0.04, 0.32, 0.12);
+      vec3 tip = vec3(0.08, 0.48, 0.18);
+      vec3 gold = vec3(1.05, 0.62, 0.16);
+      vec3 berry = vec3(0.82, 0.08, 0.1);
+      vec3 ivory = vec3(1.0, 0.84, 0.58);
+      vec3 ice = vec3(0.42, 0.72, 0.78);
+      float pick = fract(vRandom * 7.13);
+      vec3 lamp = mix(gold, berry, step(0.4, pick));
+      lamp = mix(lamp, ivory, step(0.7, pick));
+      lamp = mix(lamp, ice, step(0.9, pick));
+      float jewel = step(0.7, vRandom) * tipLight;
       vec3 pine = mix(core, mid, smoothstep(0.0, 0.55, vShell));
-      pine = mix(pine, tip, smoothstep(0.42, 1.0, vShell));
-      pine = mix(pine, gold, smoothstep(0.93, 0.99, vRandom) * tipLight);
-      pine *= mix(0.9, 0.4 + twinkle, tipLight * smoothstep(0.45, 0.92, vRandom));
+      pine = mix(pine, tip, smoothstep(0.45, 1.0, vShell));
+      pine = mix(pine, lamp, jewel);
+      pine *= mix(0.85, 0.55 + 0.45 * twinkle, jewel + tipLight * 0.25);
       float yNorm = clamp((vHeight + 6.1) / 12.2, 0.0, 1.0);
       float sweep = fract(uTime * 0.16);
       float along = min(abs(yNorm - sweep), 1.0 - abs(yNorm - sweep));
-      float band = exp(-along * along * 70.0);
-      pine += vec3(0.2, 1.0, 0.42) * band * tipLight;
+      float band = exp(-along * along * 80.0);
+      float crownFade = smoothstep(0.97, 0.62, yNorm);
+      pine += vec3(0.7, 0.38, 0.08) * band * tipLight * crownFade * 0.42;
+      float travel = sin(clamp(vMix, 0.0, 1.0) * 3.14159);
+      pine += lamp * travel * jewel * 0.65;
       vec3 ember = mix(vec3(1.05, 0.62, 0.22), vec3(0.1, 0.72, 0.32), smoothstep(2.2, 7.0, vRadius));
-      ember = mix(ember, vec3(0.95, 0.22, 0.16), smoothstep(0.9, 1.0, vRandom));
+      ember = mix(ember, lamp, 0.78);
       ember *= 0.34 + 0.5 * twinkle;
       vec3 color = mix(ember, pine, vMix);
       float alpha = glow * mix(0.78, 0.55 + 0.45 * vShell, vMix);
@@ -212,7 +232,7 @@ function Foliage({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boole
     if (!material) return;
     material.uTime = reducedMotion ? 0 : state.clock.elapsedTime;
     const target = mode === 'FORMED' ? 1 : 0;
-    material.uProgress = reducedMotion ? target : MathUtils.damp(material.uProgress, target, 1.45, delta);
+    material.uProgress = reducedMotion ? target : MathUtils.damp(material.uProgress, target, 1.15, delta);
   });
 
   return (
@@ -350,7 +370,8 @@ function Garland({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boole
     const length = Math.hypot(point.x, point.z) || 1;
     point.x += (point.x / length) * 0.08;
     point.z += (point.z / length) * 0.08;
-    const palette = index % 9 === 0 ? '#ff4d4d' : index % 4 === 0 ? '#ffd27a' : '#fff1cf';
+    const jewels = ['#ffd27a', '#ff5d67', '#fff1cf', '#7ee0c8', '#ffb45a', '#ff4d6a'];
+    const palette = jewels[index % jewels.length];
     const color = new THREE.Color(palette);
     const theta = hashUnit(index, 11) * Math.PI * 2;
     const rad = 3.1 + hashUnit(index, 12) * 3.8;
@@ -391,8 +412,9 @@ function Garland({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boole
       const mesh = child as Mesh;
       const material = mesh.material as THREE.MeshBasicMaterial;
       const head = Math.exp(-(wrap(bulb.t, pulseA) ** 2) * 140) + Math.exp(-(wrap(bulb.t, pulseB) ** 2) * 80) * 0.7;
-      const flicker = 0.42 + 0.28 * (0.5 + 0.5 * Math.sin(time * bulb.speed + bulb.offset));
-      const gain = flicker + head * 3.4;
+      const flicker = 0.55 + 0.22 * (0.5 + 0.5 * Math.sin(time * bulb.speed + bulb.offset));
+      const crown = 1 - bulb.t * bulb.t * 0.7;
+      const gain = flicker + head * 1.6 * crown;
       material.color.r = bulb.base.r * gain;
       material.color.g = bulb.base.g * gain;
       material.color.b = bulb.base.b * gain;
@@ -494,10 +516,11 @@ function Baubles({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boole
 
 function Star({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boolean }) {
   const groupRef = useRef<Group>(null);
+  const spin = useRef(0);
   const geometry = useMemo(() => {
     const shape = new THREE.Shape();
-    const outer = 1.02;
-    const inner = 0.46;
+    const outer = 0.86;
+    const inner = 0.3;
     for (let index = 0; index < 10; index += 1) {
       const radius = index % 2 === 0 ? outer : inner;
       const angle = (index / 10) * Math.PI * 2 - Math.PI / 2;
@@ -508,10 +531,10 @@ function Star({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boolean 
     }
     shape.closePath();
     const star = new THREE.ExtrudeGeometry(shape, {
-      depth: 0.22,
+      depth: 0.12,
       bevelEnabled: true,
-      bevelThickness: 0.05,
-      bevelSize: 0.05,
+      bevelThickness: 0.035,
+      bevelSize: 0.035,
       bevelSegments: 2,
     });
     star.center();
@@ -529,7 +552,9 @@ function Star({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boolean 
     const lift = formed ? 0 : 0.7;
     const bob = reducedMotion ? 0 : Math.sin(state.clock.elapsedTime * (formed ? 0.8 : 0.9)) * (formed ? 0.04 : 0.16);
     group.position.y = baseY + lift + bob;
+    if (!reducedMotion) spin.current += delta * (formed ? 0.22 : 0.5);
     group.lookAt(state.camera.position);
+    group.rotateZ(spin.current);
   });
 
   const glow = useGlowTexture();
@@ -537,13 +562,13 @@ function Star({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boolean 
   return (
     <group ref={groupRef} position={[0, CONFIG.tree.height / 2 + 1.05, 0]} scale={0.001}>
       <mesh position={[0, 0, -0.15]}>
-        <planeGeometry args={[3.6, 3.6]} />
-        <meshBasicMaterial map={glow} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+        <planeGeometry args={[2.15, 2.15]} />
+        <meshBasicMaterial map={glow} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} opacity={0.72} />
       </mesh>
       <mesh geometry={geometry}>
-        <meshStandardMaterial color="#ffe0a4" emissive="#ffb14a" emissiveIntensity={0.7} roughness={0.28} metalness={0.62} />
+        <meshStandardMaterial color="#f3d7a4" emissive="#c9843a" emissiveIntensity={0.28} roughness={0.32} metalness={0.55} />
       </mesh>
-      <pointLight color="#ffd59a" intensity={18} distance={7.5} decay={2} position={[0, 0, 0.3]} />
+      <pointLight color="#ffd59a" intensity={4.2} distance={4.2} decay={2} position={[0, 0, 0.2]} />
     </group>
   );
 }
@@ -557,9 +582,9 @@ function useGlowTexture() {
     const texture = new THREE.CanvasTexture(canvas);
     if (!context) return texture;
     const gradient = context.createRadialGradient(128, 128, 4, 128, 128, 128);
-    gradient.addColorStop(0, 'rgba(255, 244, 214, 0.95)');
-    gradient.addColorStop(0.22, 'rgba(255, 186, 74, 0.55)');
-    gradient.addColorStop(0.55, 'rgba(255, 120, 30, 0.08)');
+    gradient.addColorStop(0, 'rgba(255, 214, 140, 0.42)');
+    gradient.addColorStop(0.3, 'rgba(255, 160, 54, 0.16)');
+    gradient.addColorStop(0.62, 'rgba(255, 120, 30, 0.03)');
     gradient.addColorStop(1, 'rgba(255, 120, 30, 0)');
     context.fillStyle = gradient;
     context.fillRect(0, 0, 256, 256);
@@ -902,7 +927,7 @@ export default function Experience({
       </group>
 
       <EffectComposer multisampling={2}>
-        <Bloom luminanceThreshold={0.35} luminanceSmoothing={0.18} intensity={0.85} radius={0.55} mipmapBlur />
+        <Bloom luminanceThreshold={0.5} luminanceSmoothing={0.22} intensity={0.62} radius={0.42} mipmapBlur />
         <Vignette eskil={false} offset={0.2} darkness={0.48} />
       </EffectComposer>
     </>
