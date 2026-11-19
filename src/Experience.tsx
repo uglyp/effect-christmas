@@ -58,24 +58,19 @@ const foliageShader = {
       vec3 formed = aTargetPos;
       formed.x += sway;
       formed.z += cos(uTime * 0.9 + aRandom * 7.0) * (0.02 + aShell * 0.06) * localT;
-      float unwind = (1.0 - localT) * (2.4 + aRandom * 2.2);
-      float cs = cos(unwind);
-      float sn = sin(unwind);
-      formed.xz = mat2(cs, sn, -sn, cs) * formed.xz;
-      formed.y += sin(localT * 3.14159) * (0.45 + aRandom * 1.05);
-      float column = step(aRandom, 0.26);
-      float swirl = atan(position.z, position.x);
-      swirl += aRandom > 0.63 ? 3.14159 : 0.0;
-      swirl += uTime * mix(0.22, 0.58, aRandom) * (aRandom > 0.5 ? 1.0 : -1.0);
-      float arm = mix(3.3, 7.2, pow(fract(aRandom * 5.7), 0.8));
-      float r = column > 0.5 ? mix(0.25, 1.8, aShell) : arm;
-      vec3 chaos = vec3(cos(swirl) * r, position.y * 0.62, sin(swirl) * r);
-      chaos.y += sin(uTime * (0.7 + aRandom) + swirl) * (column > 0.5 ? 1.15 : 0.32);
-      vec3 finalPos = mix(chaos, formed, localT);
+      float openT = 1.0 - localT;
+      float formedAng = atan(formed.z, formed.x);
+      float formedR = length(formed.xz);
+      float spread = mix(1.16, 1.62, aShell) + aRandom * 0.12;
+      float dir = aRandom > 0.5 ? 1.0 : -1.0;
+      float ang = formedAng + openT * dir * (0.42 + aShell * 0.38);
+      float rad = formedR * mix(spread, 1.0, localT);
+      float y = formed.y + openT * (0.1 + aShell * 0.42) + sin(uTime * 0.35 + aRandom * 6.28318) * 0.07 * openT;
+      vec3 finalPos = vec3(cos(ang) * rad, y, sin(ang) * rad);
       vec4 mvPosition = modelViewMatrix * vec4(finalPos, 1.0);
       float travel = sin(localT * 3.14159);
-      float px = mix(240.0, 280.0, localT);
-      float cap = mix(7.0, 8.2, localT) + travel * 2.4;
+      float px = mix(210.0, 280.0, localT);
+      float cap = mix(4.8, 8.2, localT) + travel * 1.1;
       gl_PointSize = clamp((px * (0.42 + aRandom * 0.5 + aShell * 0.28)) / max(1.0, -mvPosition.z), 1.6, cap);
       gl_Position = projectionMatrix * mvPosition;
     }
@@ -117,15 +112,37 @@ const foliageShader = {
       pine += vec3(0.7, 0.38, 0.08) * band * tipLight * crownFade * 0.42;
       float travel = sin(clamp(vMix, 0.0, 1.0) * 3.14159);
       pine += lamp * travel * jewel * 0.65;
-      vec3 ember = mix(vec3(1.05, 0.62, 0.22), vec3(0.1, 0.72, 0.32), smoothstep(2.2, 7.0, vRadius));
-      ember = mix(ember, lamp, 0.78);
-      ember *= 0.34 + 0.5 * twinkle;
+      vec3 ember = mix(pine, lamp, jewel) * (0.82 + 0.18 * twinkle);
       vec3 color = mix(ember, pine, vMix);
-      float alpha = glow * mix(0.78, 0.55 + 0.45 * vShell, vMix);
+      float alpha = glow * mix(0.32 + jewel * 0.38, 0.55 + 0.45 * vShell, vMix);
       gl_FragColor = vec4(color * alpha, alpha);
     }
   `,
 };
+
+function cubicInOut(value: number) {
+  const t = MathUtils.clamp(value, 0, 1);
+  return t < 0.5 ? 4 * t * t * t : 0.5 * (2 * t - 2) ** 3 + 1;
+}
+
+function smooth01(edge0: number, edge1: number, value: number) {
+  const t = MathUtils.clamp((value - edge0) / Math.max(0.0001, edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+function openedPose(
+  formed: THREE.Vector3,
+  spread: number,
+  lift: number,
+  twist: number,
+  local: number,
+  target: THREE.Vector3,
+) {
+  const open = 1 - local;
+  const ang = Math.atan2(formed.z, formed.x) + twist * open;
+  const rad = Math.hypot(formed.x, formed.z) * (1 + (spread - 1) * open);
+  target.set(Math.cos(ang) * rad, formed.y + lift * open, Math.sin(ang) * rad);
+}
 
 const FoliageShader = shaderMaterial(foliageShader.uniforms, foliageShader.vertex, foliageShader.fragment);
 extendFiber({ FoliageMaterial: FoliageShader });
@@ -359,6 +376,8 @@ function Gifts() {
 
 function Garland({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boolean }) {
   const groupRef = useRef<Group>(null);
+  const progress = useRef(0);
+  const pose = useMemo(() => new THREE.Vector3(), []);
   const cord = useMemo(() => {
     const points = Array.from({ length: 160 }, (_, index) => helixPoint(index / 159));
     const curve = new THREE.CatmullRomCurve3(points);
@@ -373,14 +392,21 @@ function Garland({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boole
     const jewels = ['#ffd27a', '#ff5d67', '#fff1cf', '#7ee0c8', '#ffb45a', '#ff4d6a'];
     const palette = jewels[index % jewels.length];
     const color = new THREE.Color(palette);
-    const theta = hashUnit(index, 11) * Math.PI * 2;
-    const rad = 3.1 + hashUnit(index, 12) * 3.8;
-    const chaos = new THREE.Vector3(Math.cos(theta) * rad, (hashUnit(index, 13) - 0.45) * 8.5, Math.sin(theta) * rad);
+    const spread = 1.32;
+    const low = MathUtils.clamp(-point.y / 6, 0, 1);
+    const lift = 0.16 + low * 0.7;
+    const twist = 0.72;
+    const openAng = Math.atan2(point.z, point.x) + twist;
+    const openRad = Math.hypot(point.x, point.z) * spread;
+    const chaos = new THREE.Vector3(Math.cos(openAng) * openRad, point.y + lift, Math.sin(openAng) * openRad);
     return {
       t,
       point,
       chaos,
       current: point.clone(),
+      spread,
+      lift,
+      twist,
       base: { r: color.r, g: color.g, b: color.b },
       scale: index % 9 === 0 ? 0.13 : 0.08,
       speed: 1.4 + hashUnit(index, 2) * 2.8,
@@ -400,6 +426,9 @@ function Garland({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boole
     cordMaterial.opacity = reducedMotion ? cordTarget : MathUtils.damp(cordMaterial.opacity, cordTarget, 2.4, delta);
     cordMaterial.emissiveIntensity = 0.85 * cordMaterial.opacity;
     const time = reducedMotion ? 0 : state.clock.elapsedTime;
+    const goal = formed ? 1 : 0;
+    progress.current = reducedMotion ? goal : MathUtils.damp(progress.current, goal, 1.15, delta);
+    const shaped = cubicInOut(progress.current);
     const pulseA = (time * 0.23) % 1;
     const pulseB = (time * 0.16 + 0.47) % 1;
     const wrap = (a: number, b: number) => {
@@ -411,22 +440,21 @@ function Garland({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boole
       const bulb = bulbs[index - 1];
       const mesh = child as Mesh;
       const material = mesh.material as THREE.MeshBasicMaterial;
-      const head = Math.exp(-(wrap(bulb.t, pulseA) ** 2) * 140) + Math.exp(-(wrap(bulb.t, pulseB) ** 2) * 80) * 0.7;
+      const head = formed
+        ? Math.exp(-(wrap(bulb.t, pulseA) ** 2) * 140) + Math.exp(-(wrap(bulb.t, pulseB) ** 2) * 80) * 0.7
+        : 0;
       const flicker = 0.55 + 0.22 * (0.5 + 0.5 * Math.sin(time * bulb.speed + bulb.offset));
       const crown = 1 - bulb.t * bulb.t * 0.7;
       const gain = flicker + head * 1.6 * crown;
       material.color.r = bulb.base.r * gain;
       material.color.g = bulb.base.g * gain;
       material.color.b = bulb.base.b * gain;
-      mesh.scale.setScalar(bulb.scale * (1 + head * 0.9) * (formed ? 1 : 1.12));
-      bulb.current.lerp(formed ? bulb.point : bulb.chaos, 1 - Math.exp(-delta * (formed ? 2.4 : 1.35)));
-      mesh.position.copy(bulb.current);
-      if (!formed && !reducedMotion) {
-        const orbit = time * 0.55 + bulb.offset;
-        mesh.position.x += Math.cos(orbit) * 0.7;
-        mesh.position.z += Math.sin(orbit) * 0.7;
-        mesh.position.y += Math.sin(time * 0.9 + bulb.offset) * 0.35;
-      }
+      mesh.scale.setScalar(bulb.scale * (1 + head * 0.9));
+      const yNorm = MathUtils.clamp((bulb.point.y + 6.1) / 12.2, 0, 1);
+      const delay = yNorm * 0.46;
+      const local = smooth01(delay, Math.min(delay + 0.5, 1), shaped);
+      openedPose(bulb.point, bulb.spread, bulb.lift, bulb.twist, local, pose);
+      mesh.position.copy(pose);
     });
   });
 
@@ -454,6 +482,8 @@ const BAUBLE_LOOKS = [
 
 function Baubles({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boolean }) {
   const groupRef = useRef<Group>(null);
+  const progress = useRef(0);
+  const pose = useMemo(() => new THREE.Vector3(), []);
   const materials = useMemo(() => BAUBLE_LOOKS.map((look) => new THREE.MeshStandardMaterial(look)), []);
   const data = useMemo(() => Array.from({ length: CONFIG.baubles }, (_, index) => {
     const yNorm = 0.08 + 0.84 * (index / (CONFIG.baubles - 1));
@@ -461,13 +491,20 @@ function Baubles({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boole
     const radial = CONFIG.tree.radius * (1 - yNorm) * (0.9 + hashUnit(index, 2) * 0.12);
     const theta = index * 2.399963 + 1.15;
     const target = new THREE.Vector3(Math.cos(theta) * radial, y, Math.sin(theta) * radial);
-    const chaosTheta = hashUnit(index, 3) * Math.PI * 2;
-    const rad = 2.8 + hashUnit(index, 5) * 4.2;
-    const chaos = new THREE.Vector3(Math.cos(chaosTheta) * rad, (hashUnit(index, 4) - 0.45) * 8, Math.sin(chaosTheta) * rad);
+    const spread = 1.2 + hashUnit(index, 5) * 0.22;
+    const low = MathUtils.clamp(-target.y / 6, 0, 1);
+    const lift = 0.2 + low * 0.55 + hashUnit(index, 4) * 0.18;
+    const twist = (hashUnit(index, 3) - 0.5) * 1.15;
+    const openAng = Math.atan2(target.z, target.x) + twist;
+    const openRad = Math.hypot(target.x, target.z) * spread;
+    const chaos = new THREE.Vector3(Math.cos(openAng) * openRad, target.y + lift, Math.sin(openAng) * openRad);
     return {
       target,
       chaos,
       current: chaos.clone(),
+      spread,
+      lift,
+      twist,
       scale: 0.16 + hashUnit(index, 6) * 0.2,
       material: materials[index % materials.length],
       speed: 0.6 + hashUnit(index, 7),
@@ -485,21 +522,20 @@ function Baubles({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boole
     const group = groupRef.current;
     if (!group) return;
     const formed = mode === 'FORMED';
+    const goal = formed ? 1 : 0;
+    progress.current = reducedMotion ? goal : MathUtils.damp(progress.current, goal, 1.15, delta);
+    const shaped = cubicInOut(progress.current);
+    const time = reducedMotion ? 0 : state.clock.elapsedTime;
     data.forEach((item, index) => {
       const mesh = group.children[index] as Mesh;
       if (!mesh) return;
-      item.current.lerp(formed ? item.target : item.chaos, 1 - Math.exp(-delta * (formed ? 2.1 : 1.15)));
-      mesh.position.copy(item.current);
-      if (!reducedMotion) {
-        const bob = Math.sin(state.clock.elapsedTime * item.speed + item.offset);
-        mesh.position.y += bob * (formed ? 0.045 : 0.28);
-        if (!formed) {
-          const orbit = state.clock.elapsedTime * 0.35 + item.offset;
-          mesh.position.x += Math.cos(orbit) * 0.45;
-          mesh.position.z += Math.sin(orbit) * 0.45;
-        }
-      }
-      mesh.rotation.y += delta * (reducedMotion ? 0 : formed ? 0.18 : 0.7);
+      const yNorm = MathUtils.clamp((item.target.y + 6.1) / 12.2, 0, 1);
+      const delay = yNorm * 0.46;
+      const local = smooth01(delay, Math.min(delay + 0.5, 1), shaped);
+      openedPose(item.target, item.spread, item.lift, item.twist, local, pose);
+      mesh.position.copy(pose);
+      if (!reducedMotion) mesh.position.y += Math.sin(time * item.speed + item.offset) * (formed ? 0.045 : 0.07);
+      mesh.rotation.y += delta * (reducedMotion ? 0 : formed ? 0.18 : 0.16);
     });
   });
 
@@ -545,11 +581,11 @@ function Star({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boolean 
     const group = groupRef.current;
     if (!group) return;
     const formed = mode === 'FORMED';
-    const target = formed ? 1 : 0.82;
+    const target = formed ? 1 : 0.94;
     const next = reducedMotion ? target : MathUtils.damp(group.scale.x, target, 2.4, delta);
     group.scale.setScalar(Math.max(next, 0.001));
     const baseY = CONFIG.tree.height / 2 + 1.05;
-    const lift = formed ? 0 : 0.7;
+    const lift = formed ? 0 : 0.28;
     const bob = reducedMotion ? 0 : Math.sin(state.clock.elapsedTime * (formed ? 0.8 : 0.9)) * (formed ? 0.04 : 0.16);
     group.position.y = baseY + lift + bob;
     if (!reducedMotion) spin.current += delta * (formed ? 0.22 : 0.5);
@@ -625,10 +661,11 @@ function LightRise({ mode, reducedMotion }: { mode: TreeMode; reducedMotion: boo
     const group = groupRef.current;
     if (group) {
     const formed = mode === 'FORMED';
-    const target = formed ? 1 : 1.7;
+    const target = formed ? 1 : 0.7;
     const next = reducedMotion ? target : MathUtils.damp(group.scale.x || 0.2, target, 1.8, delta);
-    group.scale.setScalar(Math.max(next, 0.05));
-    if (!reducedMotion) group.rotation.y += delta * (formed ? 0.04 : 0.46);
+    group.scale.setScalar(Math.max(next, 0.001));
+    group.visible = true;
+    if (!reducedMotion) group.rotation.y += delta * (formed ? 0.04 : 0.12);
     }
     if (reducedMotion || !ref.current) return;
     const attribute = ref.current.geometry.attributes.position;
