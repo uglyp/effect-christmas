@@ -105,21 +105,58 @@ input {
   pointer-events: none;
 }
 
-.eyebrow {
+.greeting {
   margin: 0;
-  color: var(--gold);
-  font-size: 12px;
-  letter-spacing: 0.28em;
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.15;
 }
 
-.mast h1 {
-  margin: 8px 0 0;
-  color: var(--ivory);
-  font-family: var(--font-display);
-  font-size: 34px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.16em;
+.greeting-line {
+  display: block;
+  font-size: 28px;
+  letter-spacing: 0.12em;
+}
+
+.greeting-name {
+  margin-top: 8px;
+  font-size: 42px;
+  letter-spacing: 0.2em;
+}
+
+.greeting-char {
+  display: inline-block;
+  background: linear-gradient(185deg, #fff8ea 0%, #f0d7a2 38%, #c9893a 78%, #6d4a22 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: greeting-twinkle 3.2s ease-in-out infinite;
+}
+
+.greeting-space {
+  display: inline-block;
+  width: 0.32em;
+}
+
+@keyframes greeting-twinkle {
+  0%,
+  100% {
+    opacity: 0.38;
+    filter: drop-shadow(0 0 1px rgba(228, 194, 122, 0.15));
+  }
+
+  38% {
+    opacity: 1;
+    filter:
+      drop-shadow(0 0 6px rgba(255, 228, 170, 0.95))
+      drop-shadow(0 0 16px rgba(228, 194, 122, 0.72));
+  }
+
+  58% {
+    opacity: 0.42;
+    filter: drop-shadow(0 0 2px rgba(228, 194, 122, 0.28));
+  }
 }
 
 .dock {
@@ -328,15 +365,15 @@ input {
     left: max(16px, env(safe-area-inset-left));
   }
 
-  .eyebrow {
-    font-size: 11px;
-    letter-spacing: 0.22em;
+  .greeting-line {
+    font-size: 20px;
+    letter-spacing: 0.08em;
   }
 
-  .mast h1 {
+  .greeting-name {
     margin-top: 4px;
-    font-size: 26px;
-    letter-spacing: 0.1em;
+    font-size: 30px;
+    letter-spacing: 0.14em;
   }
 
   .dock {
@@ -378,12 +415,12 @@ input {
 }
 
 @media (max-height: 520px) {
-  .eyebrow {
-    display: none;
+  .greeting-line {
+    font-size: 18px;
   }
 
-  .mast h1 {
-    font-size: 22px;
+  .greeting-name {
+    font-size: 24px;
   }
 
   .dock {
@@ -399,5 +436,11 @@ input {
   .btn,
   .lightbox-bar button {
     transition: none;
+  }
+
+  .greeting-char {
+    animation: none;
+    opacity: 1;
+    filter: drop-shadow(0 0 8px rgba(228, 194, 122, 0.45));
   }
 }
