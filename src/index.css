@@ -377,25 +377,38 @@ input {
   }
 
   .dock {
-    bottom: max(12px, env(safe-area-inset-bottom));
+    bottom: max(16px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
     gap: 8px;
-    width: min(420px, calc(100% - 32px));
+    align-items: flex-start;
+    width: auto;
+    max-width: none;
+    transform: none;
+  }
+
+  .dock::before {
+    inset: -18px -28px -14px -10px;
+    background: radial-gradient(ellipse at left center, rgba(7, 20, 15, 0.72), transparent 74%);
   }
 
   .dock-actions {
-    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    width: auto;
   }
 
   .dock-actions .btn {
-    flex: 1 1 30%;
-    min-width: 0;
-    padding: 0 8px;
-    font-size: 13px;
+    flex: none;
+    width: 100%;
+    min-width: 7.5em;
+    padding: 0 16px;
+    font-size: 14px;
   }
 
   .dock-note {
-    max-width: 28em;
+    max-width: 10em;
     font-size: 12px;
+    text-align: left;
   }
 
   .dock-note.is-hint {

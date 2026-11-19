@@ -894,7 +894,7 @@ export default function Experience({
     camera.updateProjectionMatrix();
     const halfWidth = Math.tan(MathUtils.degToRad(camera.fov / 2)) * aspect;
     const distance = narrow
-      ? MathUtils.clamp(6.8 / Math.max(halfWidth, 0.08), 38, 56)
+      ? MathUtils.clamp(5.2 / Math.max(halfWidth, 0.08), 30, 40)
       : short ? 40 : 34;
     controls.target.set(0, narrow ? -2.05 : -1.1, 0);
     controls.minDistance = narrow ? 28 : 18;

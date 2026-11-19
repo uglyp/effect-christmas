@@ -78,7 +78,7 @@ export default function App() {
       <LoadLine />
       <div className="viewport">
         <Canvas
-          dpr={narrow ? [1, 1.25] : [1, 1.6]}
+          dpr={narrow ? [1, 2] : [1, 1.6]}
           camera={{ position: [0, 0.35, 34], fov: 30, near: 0.1, far: 180 }}
           gl={{
             antialias: true,
