@@ -105,9 +105,9 @@ export default function App() {
       </div>
 
       <header className="mast">
-        <h1 className="greeting" aria-label="Merry Christmas, Xuan">
-          {['Merry Christmas,', 'Xuan'].map((line) => (
-            <span key={line} className={line === 'Xuan' ? 'greeting-line greeting-name' : 'greeting-line'}>
+        <h1 className="greeting" aria-label="Merry Christmas, Junru">
+          {['Merry Christmas,', 'Junru'].map((line) => (
+            <span key={line} className={line === 'Junru' ? 'greeting-line greeting-name' : 'greeting-line'}>
               {line.split('').map((char, index) => (
                 char === ' ' ? (
                   <span key={`${line}-${index}`} className="greeting-space"> </span>
