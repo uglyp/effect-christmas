@@ -4,7 +4,7 @@ export type TreeMode = 'CHAOS' | 'FORMED';
 
 export const CONFIG = {
   tree: { height: 12.2, radius: 4.7 },
-  foliage: 22000,
+  foliage: 32000,
   baubles: 64,
   lights: 210,
   sparks: 520,
