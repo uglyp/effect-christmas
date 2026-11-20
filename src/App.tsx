@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { useProgress } from '@react-three/drei';
 import * as THREE from 'three';
@@ -42,7 +42,6 @@ function LoadLine() {
 export default function App() {
   const reducedMotion = useReducedMotion();
   const narrow = useNarrow();
-  const motion = useRef({ spin: 0, tilt: 0 });
   const [mode, setMode] = useState<TreeMode>('FORMED');
   const [gesture, setGesture] = useState(false);
   const [snow, setSnow] = useState(true);
@@ -53,8 +52,6 @@ export default function App() {
     if (gesture) return;
     setPreview(false);
     setStatus('');
-    motion.current.spin = 0;
-    motion.current.tilt = 0;
   }, [gesture]);
 
   useEffect(() => {
@@ -70,7 +67,9 @@ export default function App() {
   }, []);
 
   const problem = /允许|没有|无法|失败/.test(status);
-  const note = gesture ? (status || '正在准备手势') : '空格键也可以聚拢或散开';
+  const note = gesture
+    ? (status || '正在准备手势')
+    : '空格键也可聚拢或散开；开启手势后张手散开、握拳聚拢';
 
   return (
     <div className="stage">
@@ -97,8 +96,7 @@ export default function App() {
               snow={snow}
               reducedMotion={reducedMotion}
               controlsEnabled
-              autoRotate={!gesture && mode === 'FORMED' && !reducedMotion}
-              motion={motion}
+              autoRotate={mode === 'FORMED' && !reducedMotion}
             />
           </Suspense>
         </Canvas>
@@ -156,7 +154,7 @@ export default function App() {
       </footer>
 
       {gesture && (
-        <GestureController preview={preview} motion={motion} onMode={setMode} onStatus={setStatus} />
+        <GestureController preview={preview} mode={mode} onMode={setMode} onStatus={setStatus} />
       )}
     </div>
   );

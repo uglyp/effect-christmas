@@ -1,37 +1,41 @@
-import { useEffect, useRef, type MutableRefObject } from 'react';
+import { useEffect, useRef } from 'react';
 import { GestureRecognizer, FilesetResolver, DrawingUtils } from '@mediapipe/tasks-vision';
 import type { TreeMode } from './treeConfig';
 
-interface Motion {
-  spin: number;
-  tilt: number;
-}
-
 interface GestureControllerProps {
   preview: boolean;
-  motion: MutableRefObject<Motion>;
+  mode: TreeMode;
   onMode: (mode: TreeMode) => void;
   onStatus: (status: string) => void;
 }
 
 const READY = '张手散开，握拳聚拢。画面只留在这台设备上。';
+const VISION_WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm';
+const GESTURE_MODEL =
+  'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task';
 
-export default function GestureController({ preview, motion, onMode, onStatus }: GestureControllerProps) {
+const SCORE_MIN = 0.62;
+const VOTE_WINDOW = 12;
+const VOTE_NEED = 8;
+const LOCK_MS = 700;
+
+export default function GestureController({ preview, mode, onMode, onStatus }: GestureControllerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef(preview);
+  const modeRef = useRef(mode);
   previewRef.current = preview;
+  modeRef.current = mode;
 
   useEffect(() => {
     let recognizer: GestureRecognizer | null = null;
     let frame = 0;
     let cancelled = false;
     let phase = '';
-    let applied = '';
     let lockedUntil = 0;
-    let cameraPausedUntil = 0;
-    let lastX = -1;
-    let lastY = -1;
+    let feedbackToken = 0;
+    let feedbackTimer = 0;
+    let drawer: DrawingUtils | null = null;
     const votes: string[] = [];
 
     const setPhase = (next: string) => {
@@ -47,6 +51,40 @@ export default function GestureController({ preview, motion, onMode, onStatus }:
       if (video) video.srcObject = null;
     };
 
+    const flashStatus = (message: string) => {
+      const token = ++feedbackToken;
+      setPhase(message);
+      window.clearTimeout(feedbackTimer);
+      feedbackTimer = window.setTimeout(() => {
+        if (!cancelled && token === feedbackToken) setPhase(READY);
+      }, 1600);
+    };
+
+    const decide = (now: number) => {
+      if (now < lockedUntil || votes.length < VOTE_NEED) return;
+
+      let palms = 0;
+      let fists = 0;
+      for (const vote of votes) {
+        if (vote === 'Open_Palm') palms += 1;
+        else if (vote === 'Closed_Fist') fists += 1;
+      }
+
+      const next: TreeMode | '' =
+        palms >= VOTE_NEED && palms > fists
+          ? 'CHAOS'
+          : fists >= VOTE_NEED && fists > palms
+            ? 'FORMED'
+            : '';
+
+      if (!next || next === modeRef.current) return;
+
+      lockedUntil = now + LOCK_MS;
+      votes.length = 0;
+      onMode(next);
+      flashStatus(next === 'CHAOS' ? '已散开 · 握拳可再聚拢' : '已聚拢 · 张手可再散开');
+    };
+
     const predict = () => {
       if (cancelled || !recognizer || !videoRef.current || !canvasRef.current) return;
       const video = videoRef.current;
@@ -54,11 +92,14 @@ export default function GestureController({ preview, motion, onMode, onStatus }:
         const results = recognizer.recognizeForVideo(video, performance.now());
         const canvas = canvasRef.current;
         const context = canvas.getContext('2d');
+
         if (previewRef.current && context) {
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
+          if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+          }
           context.clearRect(0, 0, canvas.width, canvas.height);
-          const drawer = new DrawingUtils(context);
+          if (!drawer) drawer = new DrawingUtils(context);
           for (const landmarks of results.landmarks ?? []) {
             drawer.drawConnectors(landmarks, GestureRecognizer.HAND_CONNECTIONS, { color: '#E4C27A', lineWidth: 2 });
             drawer.drawLandmarks(landmarks, { color: '#F3EBDD', radius: 2 });
@@ -66,54 +107,16 @@ export default function GestureController({ preview, motion, onMode, onStatus }:
         }
 
         const now = performance.now();
-        const gesture = results.gestures[0]?.[0];
-        const name = gesture && gesture.score > 0.5 ? gesture.categoryName : '';
-        if (name === 'Open_Palm' || name === 'Closed_Fist') {
-          votes.push(name);
-          if (votes.length > 10) votes.shift();
-          let palms = 0;
-          let fists = 0;
-          for (const vote of votes) {
-            if (vote === 'Open_Palm') palms += 1;
-            else fists += 1;
+        if (now >= lockedUntil) {
+          const gesture = results.gestures[0]?.[0];
+          const name = gesture && gesture.score >= SCORE_MIN ? gesture.categoryName : '';
+          if (name === 'Open_Palm' || name === 'Closed_Fist') {
+            votes.push(name);
+            if (votes.length > VOTE_WINDOW) votes.shift();
+            decide(now);
+          } else if (votes.length) {
+            votes.shift();
           }
-          const next = palms >= 6 && palms > fists ? 'CHAOS' : fists >= 6 && fists > palms ? 'FORMED' : '';
-          if (next && next !== applied && now >= lockedUntil) {
-            applied = next;
-            lockedUntil = now + 450;
-            cameraPausedUntil = now + 380;
-            votes.length = 0;
-            motion.current.spin = 0;
-            motion.current.tilt = 0;
-            onMode(next);
-          }
-        }
-
-        const wrist = results.landmarks?.[0]?.[0];
-        if (wrist && now >= cameraPausedUntil) {
-          if (lastX < 0) {
-            lastX = wrist.x;
-            lastY = wrist.y;
-          } else {
-            const rawDx = wrist.x - lastX;
-            const rawDy = wrist.y - lastY;
-            if (Math.abs(rawDx) > 0.045 || Math.abs(rawDy) > 0.045) {
-              lastX = wrist.x;
-              lastY = wrist.y;
-            } else {
-              const smoothX = lastX + rawDx * 0.35;
-              const smoothY = lastY + rawDy * 0.35;
-              const dx = smoothX - lastX;
-              const dy = smoothY - lastY;
-              lastX = smoothX;
-              lastY = smoothY;
-              if (Math.abs(dx) > 0.0008) motion.current.spin += -dx * 2.4;
-              if (Math.abs(dy) > 0.0008) motion.current.tilt += dy * 0.85;
-            }
-          }
-        } else if (!wrist) {
-          lastX = -1;
-          lastY = -1;
         }
       }
       frame = requestAnimationFrame(predict);
@@ -122,16 +125,23 @@ export default function GestureController({ preview, motion, onMode, onStatus }:
     const setup = async () => {
       setPhase('正在准备手势');
       try {
-        const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
+        const vision = await FilesetResolver.forVisionTasks(VISION_WASM);
         if (cancelled) return;
-        recognizer = await GestureRecognizer.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task',
-            delegate: 'GPU',
-          },
-          runningMode: 'VIDEO',
-          numHands: 1,
-        });
+
+        try {
+          recognizer = await GestureRecognizer.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: GESTURE_MODEL, delegate: 'GPU' },
+            runningMode: 'VIDEO',
+            numHands: 1,
+          });
+        } catch {
+          recognizer = await GestureRecognizer.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: GESTURE_MODEL, delegate: 'CPU' },
+            runningMode: 'VIDEO',
+            numHands: 1,
+          });
+        }
+
         if (cancelled) {
           recognizer.close();
           return;
@@ -140,7 +150,10 @@ export default function GestureController({ preview, motion, onMode, onStatus }:
           setPhase('这台设备没有摄像头');
           return;
         }
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false,
+        });
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop());
           return;
@@ -162,10 +175,11 @@ export default function GestureController({ preview, motion, onMode, onStatus }:
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      window.clearTimeout(feedbackTimer);
       try { recognizer?.close(); } catch { /* already closed */ }
       stopStream();
     };
-  }, [motion, onMode, onStatus]);
+  }, [onMode, onStatus]);
 
   return (
     <div className={preview ? 'camera-slot' : 'camera-slot is-hidden'} aria-hidden="true">

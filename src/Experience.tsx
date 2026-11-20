@@ -1,22 +1,17 @@
-import { Suspense, useLayoutEffect, useMemo, useRef, type MutableRefObject } from 'react';
-import { extend as extendFiber, useFrame, useThree } from '@react-three/fiber';
+import { Suspense, useLayoutEffect, useMemo, useRef } from 'react';
+import { extend as extendFiber, useFrame, useThree, type MaterialNode } from '@react-three/fiber';
 import { Environment, OrbitControls, Stars, shaderMaterial } from '@react-three/drei';
 import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing';
 import { MathUtils, ShaderMaterial, type Group, type Mesh, type Points } from 'three';
 import * as THREE from 'three';
 import { CONFIG, hashUnit, helixPoint, type TreeMode } from './treeConfig';
 
-declare module '@react-three/fiber' {
-  interface ThreeElements {
-    foliageMaterial: any;
-  }
-}
-
 type FoliageMat = ShaderMaterial & { uTime: number; uProgress: number };
 
-interface Motion {
-  spin: number;
-  tilt: number;
+declare module '@react-three/fiber' {
+  interface ThreeElements {
+    foliageMaterial: MaterialNode<FoliageMat, typeof ShaderMaterial>;
+  }
 }
 
 interface ExperienceProps {
@@ -25,7 +20,6 @@ interface ExperienceProps {
   reducedMotion: boolean;
   controlsEnabled: boolean;
   autoRotate: boolean;
-  motion: MutableRefObject<Motion>;
 }
 
 const foliageShader = {
@@ -875,7 +869,6 @@ export default function Experience({
   reducedMotion,
   controlsEnabled,
   autoRotate,
-  motion,
 }: ExperienceProps) {
   const controlsRef = useRef<React.ComponentRef<typeof OrbitControls>>(null);
   const fitted = useRef('');
@@ -907,19 +900,6 @@ export default function Experience({
     camera.position.copy(controls.target).add(offset);
     controls.update();
     fitted.current = key;
-  });
-
-  useFrame((_, delta) => {
-    const controls = controlsRef.current;
-    if (!controls) return;
-    const spin = MathUtils.clamp(motion.current.spin, -0.03, 0.03);
-    const tilt = MathUtils.clamp(motion.current.tilt, -0.02, 0.02);
-    motion.current.spin = 0;
-    motion.current.tilt = 0;
-    if (spin) controls.setAzimuthalAngle(controls.getAzimuthalAngle() + spin);
-    if (tilt) controls.setPolarAngle(MathUtils.clamp(controls.getPolarAngle() + tilt, 1.05, 1.72));
-    controls.update();
-    void delta;
   });
 
   return (
